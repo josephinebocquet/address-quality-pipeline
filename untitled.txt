@@ -1,0 +1,8 @@
+./data/outputs/
+./data/reference/ref_biaised_geocoded/
+./data/reference/ref_chunked_geocoded/
+./data/reference/ref_chunked/
+./data/reference/ref_biaised/
+./data/biaises_identified.csv
+./data/identified_admin_bias.csv
+./figures/

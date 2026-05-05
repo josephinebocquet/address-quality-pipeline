@@ -1,0 +1,38 @@
+name: adr_env
+channels:
+  - rapidsai
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - nx-cugraph=24.12
+  - cugraph=24.12
+  - cuproj=24.12
+  - cuda-version>=12.0,<=12.5
+  - cuxfilter=24.12
+  - cuml=24.12
+  - dash
+  - networkx
+  - pytorch[build=*cuda*]
+  - raft-dask=24.12
+  - graphistry
+  - cucim=24.12
+  - xarray-spatial
+  - jupyterlab
+  - cudf=24.12
+  - cuvs=24.12
+  - cuspatial=24.12
+  - pylibraft=24.12
+  - tensorflow
+  - python=3.12
+  - pip
+  - pip:
+    - rapidfuzz
+    - phonetic-fr
+    - python-Levenshtein
+    - fiona
+    - jupytext
+    - nbstripout
+    - seaborn
+    - requests
+prefix: /home/appuser/anaconda3/envs/adr_env
