@@ -11,7 +11,7 @@ Reference data expected under ./data/socioeco/:
 Also used:
   - ./data/identified_admin_bias.csv    Hotspot candidates from script 02
                                          (manually reviewed before this step)
-  - ./data/reference/ref_biaised_geocoded/   Per-bias geocoded CSVs from script 03
+  - ./data/reference/ref_biased_geocoded/   Per-bias geocoded CSVs from script 03
 
 Usage:
     python 04_results_analysis.py <*_clean_classified.csv> [OPTIONS]
@@ -19,7 +19,7 @@ Usage:
 Options:
     --hotspot-file   Reviewed hotspot CSV from script 02
                      (default: ./data/identified_admin_bias.csv)
-    --biaises-file   Path to biaises_identified.csv
+    --biases-file   Path to biases_identified.csv
     --iris-file      IRIS GeoJSON (default: ./data/socioeco/iris.geojson)
     --revenus-file   Filosofi income CSV
                      (default: ./data/socioeco/BASE_TD_FILO_DISP_IRIS_2020.csv)
@@ -36,11 +36,11 @@ from datetime import datetime
 parser = argparse.ArgumentParser()
 parser.add_argument("input_file")
 parser.add_argument("--hotspot-file",  default="./data/identified_admin_bias.csv")
-parser.add_argument("--biaises-file",  default="./data/biaises_identified.csv")
+parser.add_argument("--biases-file",  default="./data/biases_identified.csv")
 parser.add_argument("--iris-file",     default="./data/socioeco/iris.geojson")
 parser.add_argument("--revenus-file",
                     default="./data/socioeco/BASE_TD_FILO_DISP_IRIS_2020.csv")
-parser.add_argument("--geocoded-dir",  default="./data/reference/ref_biaised_geocoded/")
+parser.add_argument("--geocoded-dir",  default="./data/reference/ref_biased_geocoded/")
 parser.add_argument("--figures-dir",   default="./figures/")
 parser.add_argument("--output-dir",    default="./data/outputs/")
 args = parser.parse_args()
@@ -84,9 +84,9 @@ def repair_gdf_columns_from_df(df: pd.DataFrame,
 print("[04] §1 Loading data...")
  
 df = pd.read_csv(args.input_file, sep=";").drop(columns=["Unnamed: 0"], errors="ignore")
-df_biaises = pd.read_csv(args.biaises_file, delimiter="|").dropna()
-biaises = pd.Series(df_biaises["biais"].astype(str).to_list())
-print(f"  Rows: {len(df):,}  |  Biases: {len(biaises)}")
+df_biases = pd.read_csv(args.biases_file, delimiter="|").dropna()
+biases = pd.Series(df_biases["bias"].astype(str).to_list())
+print(f"  Rows: {len(df):,}  |  Biases: {len(biases)}")
  
  
 # ═════════════════════════════════════════════════════════════════════════════
@@ -95,43 +95,43 @@ print(f"  Rows: {len(df):,}  |  Biases: {len(biaises)}")
 print("[04] §2 Bias position analysis...")
  
 df_positions = find_pos_elem(
-    df.copy(), "adr_init", biaises,
-    "biais", "contains_biais", "pos_biais",
+    df.copy(), "adr_init", biases,
+    "bias", "contains_bias", "pos_bias",
     drop_col_elem=False,
 )
-df_positions["comp_biais_street"] = ""  # object dtype — avoids float64 conflict on string assignment
+df_positions["comp_bias_street"] = ""  # object dtype — avoids float64 conflict on string assignment
  
 mask_residual = (
     df_positions["contains_street_type"] &
-    df_positions["contains_biais"] &
+    df_positions["contains_bias"] &
     df_positions["not_matched_brute"].notna()
 )
 diff = (
     df_positions.loc[mask_residual, "pos_street_type"]
-    - df_positions.loc[mask_residual, "pos_biais"]
+    - df_positions.loc[mask_residual, "pos_bias"]
 )
-df_positions.loc[mask_residual, "comp_biais_street"] = np.where(
+df_positions.loc[mask_residual, "comp_bias_street"] = np.where(
     diff > 0, "BEFORE", "AFTER"
 )
 mask_no_street = (
     ~df_positions["contains_street_type"] &
-    df_positions["contains_biais"] &
+    df_positions["contains_bias"] &
     df_positions["not_matched_brute"].notna()
 )
-df_positions.loc[mask_no_street, "comp_biais_street"] = "NO STREET"
+df_positions.loc[mask_no_street, "comp_bias_street"] = "NO STREET"
  
-df_biaised = df_positions[df_positions["contains_biais"]].copy()
+df_biased = df_positions[df_positions["contains_bias"]].copy()
  
-counts = df_biaised.groupby(["biais", "comp_biais_street"]).size().reset_index(name="n")
-totals = counts.groupby("biais")["n"].sum().rename("total")
-counts  = counts.join(totals, on="biais")
+counts = df_biased.groupby(["bias", "comp_bias_street"]).size().reset_index(name="n")
+totals = counts.groupby("bias")["n"].sum().rename("total")
+counts  = counts.join(totals, on="bias")
 counts["pct"] = np.round(100 * counts["n"] / counts["total"], 2)
-pivot = counts.pivot(index="biais", columns="comp_biais_street", values="pct")
+pivot = counts.pivot(index="bias", columns="comp_bias_street", values="pct")
  
-df_biaised["id"] = range(len(df_biaised))
+df_biased["id"] = range(len(df_biased))
 df_freq = (
-    freq_couverture(df_biaised, biaises.to_list(), "adr_init")
-    .sort_values("cumsum", ascending=False)[["cumsum", "freq_biais_cum"]]
+    freq_couverture(df_biased, biases.to_list(), "adr_init")
+    .sort_values("cumsum", ascending=False)[["cumsum", "freq_bias_cum"]]
 )
 summary = pd.concat([df_freq, pivot], axis=1)
  
@@ -162,7 +162,7 @@ if hotspot_file and os.path.exists(hotspot_file):
     df_merged["is_hotspot"] = df_merged["is_hotspot"].fillna(False)
     clean = df_merged[
         df_merged["contains_street_type"] &
-        ~df_merged["contains_biais"] &
+        ~df_merged["contains_bias"] &
         ~df_merged["is_hotspot"]
     ]
     print(f"  Clean       : {len(clean):>7,}  ({100*len(clean)/total:.3f}%)")
@@ -172,7 +172,7 @@ else:
  
 df_w  = df_positions[ df_positions["contains_street_type"]]
 df_wo = df_positions[~df_positions["contains_street_type"]]
-df_wb = df_positions[ df_positions["contains_biais"]]
+df_wb = df_positions[ df_positions["contains_bias"]]
 print(f"\n  With street type    : {len(df_w):>7,}  ({100*len(df_w)/total:.3f}%)")
 print(f"  Without street type : {len(df_wo):>7,}  ({100*len(df_wo)/total:.3f}%)")
 print(f"  With known bias     : {len(df_wb):>7,}  ({100*len(df_wb)/total:.3f}%)")
@@ -341,7 +341,7 @@ df_stats = (
 )
 df_stats.columns = ["dist_mean_km", "dist_med_km", "revenu_mean", "revenu_med"]
 # fix: rename needs columns= kwarg, not a positional dict
-df_stats = df_stats.reset_index().rename(columns={"label": "biais"})
+df_stats = df_stats.reset_index().rename(columns={"label": "bias"})
  
 out_stats = os.path.join(args.output_dir, f"bias_impact_stats_{date}.csv")
 df_stats.to_csv(out_stats, sep=";", index=False)

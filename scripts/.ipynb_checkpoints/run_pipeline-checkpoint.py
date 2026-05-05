@@ -107,7 +107,7 @@ def main():
     # ── Step 01 ───────────────────────────────────────────────────────────────
     if 1 in steps_to_run:
         run_step(
-            os.path.join(scripts_dir, "01_textbiais_identification.py"),
+            os.path.join(scripts_dir, "01_textbias_identification.py"),
             [
                 args.input_file,
                 "--gpu",            args.gpu,
@@ -144,31 +144,31 @@ def main():
     # ── Step 03 ───────────────────────────────────────────────────────────────
     if 3 in steps_to_run:
         # Guard: skip step 03 entirely if no biases were identified in step 01
-        biaises_file = "./data/biaises_identified.csv"
-        biaises_empty = True
-        if os.path.exists(biaises_file):
+        biases_file = "./data/biases_identified.csv"
+        biases_empty = True
+        if os.path.exists(biases_file):
             try:
                 import pandas as _pd
-                _df = _pd.read_csv(biaises_file, delimiter="|")
-                biaises_empty = len(_df.dropna()) == 0
+                _df = _pd.read_csv(biases_file, delimiter="|")
+                biases_empty = len(_df.dropna()) == 0
             except Exception:
-                biaises_empty = True
+                biases_empty = True
 
-        if biaises_empty:
+        if biases_empty:
             print(
-                "\n[run_pipeline] Step 03 SKIPPED — biaises_identified.csv is empty.\n"
+                "\n[run_pipeline] Step 03 SKIPPED — biases_identified.csv is empty.\n"
                 "  No biases to inject into the reference dataset.\n"
                 "  Re-run step 01 with a lower --min-bias-count value, or check that\n"
                 "  the input data contains addresses with extra unmatched tokens."
             )
         else:
-            print(f"\n[run_pipeline] Step 03 — injecting biases from biaises_identified.csv")
+            print(f"\n[run_pipeline] Step 03 — injecting biases from biases_identified.csv")
             step03_args = []
             if args.reference_file:
                 step03_args += ["--reference-file", args.reference_file]
             step03_args += ["--sample-size", str(args.sample_size)]
             run_step(
-                os.path.join(scripts_dir, "03_ref_biaised_integration.py"),
+                os.path.join(scripts_dir, "03_ref_biased_integration.py"),
                 step03_args,
                 step_num=3
             )
@@ -176,11 +176,11 @@ def main():
     # ── Step 04 ───────────────────────────────────────────────────────────────
     if 4 in steps_to_run:
         # Guard: skip step 04 if step 03 produced no geocoded bias files
-        geocoded_dir = "./data/reference/ref_biaised_geocoded/"
+        geocoded_dir = "./data/reference/ref_biased_geocoded/"
         has_geocoded = (
             os.path.isdir(geocoded_dir) and
             any(f.endswith(".csv") for f in os.listdir(geocoded_dir))
-        ) if not biaises_empty else False
+        ) if not biases_empty else False
 
         if not has_geocoded:
             print(

@@ -1,5 +1,5 @@
 """
-01_textbiais_identification.py  [optimized]
+01_textbias_identification.py  [optimized]
 --------------------------------------------
 GPU/CPU stage layout:
   §1–2  cudf   — large-scale string normalisation on raw 1.8M rows
@@ -13,7 +13,7 @@ Exactly one cudf→pandas transfer (before §3) and one pandas→cudf
 transfer (at the start of §7 for the relevant subset).
 
 Usage:
-    python 01_textbiais_identification.py <geocoded_patients.csv> [OPTIONS]
+    python 01_textbias_identification.py <geocoded_patients.csv> [OPTIONS]
 
 Options:
     --gpu              CUDA device ID (default: 2)
@@ -293,7 +293,7 @@ df_w_street_pd = df[
     (df["contains_street_type"] == True) & (df["geocoding_error"] == False)
 ]
 to_clean_pd = to_clean.to_pandas().dropna().unique()
-bruit_vrais = find_most_common_biaises(df_w_street_pd, to_clean_pd)
+bruit_vrais = find_most_common_biases(df_w_street_pd, to_clean_pd)
 bruit_vrais = bruit_vrais[bruit_vrais["count"] >= args.min_bias_count]
 print(f"  Bias candidates (count >= {args.min_bias_count}): {len(bruit_vrais)}")
 
@@ -302,11 +302,11 @@ if len(bruit_vrais) == 0:
         f"\n  [WARNING] No bias tokens survived the count >= {args.min_bias_count} threshold.\n"
         f"  This is expected on small datasets (sample.csv has ~89 rows).\n"
         f"  Re-run with --min-bias-count 1 to lower the threshold:\n\n"
-        f"    python scripts/01_textbiais_identification.py {args.input_file} "
+        f"    python scripts/01_textbias_identification.py {args.input_file} "
         f"--gpu {args.gpu} --min-bias-count 1\n\n"
         f"  Writing empty bias files and exiting."
     )
-    pd.DataFrame(columns=["biais"]).to_csv("./data/biaises_identified.csv", sep="|", index=False)
+    pd.DataFrame(columns=["bias"]).to_csv("./data/biases_identified.csv", sep="|", index=False)
     raise SystemExit(0)
 
 # Scan only the not_matched_brute column as a cudf Series — minimal transfer
@@ -325,9 +325,9 @@ freq_df = (
 freq_df["freq_cumulee"] = freq_df["Occurrences"].cumsum()
 freq_df["prop_cumul"]   = freq_df["freq_cumulee"] / freq_df["Occurrences"].sum()
 
-out_biaises_full = os.path.join(args.output_dir, f"biaises_identified_{date}.csv")
-freq_df.to_csv(out_biaises_full, sep=";", index=False)
-print(f"  Full bias list → {out_biaises_full}")
+out_biases_full = os.path.join(args.output_dir, f"biases_identified_{date}.csv")
+freq_df.to_csv(out_biases_full, sep=";", index=False)
+print(f"  Full bias list → {out_biases_full}")
 
 # ── Compute dominant position per bias token ──────────────────────────────
 # For each bias token, find whether it appears BEFORE or AFTER the lane type
@@ -367,11 +367,11 @@ for tok in top10_tokens:
     positions[tok] = "BEFORE" if before >= after else "AFTER"
 
 top10 = pd.DataFrame([
-    {"biais": tok, "position": positions[tok]}
+    {"bias": tok, "position": positions[tok]}
     for tok in top10_tokens
 ])
-top10.to_csv("./data/biaises_identified.csv", sep="|", index=False)
-print(f"  Top-10 biases with positions → ./data/biaises_identified.csv")
+top10.to_csv("./data/biases_identified.csv", sep="|", index=False)
+print(f"  Top-10 biases with positions → ./data/biases_identified.csv")
 print(top10.to_string(index=False))
 
 print("[01] DONE.")

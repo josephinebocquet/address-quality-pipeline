@@ -1,19 +1,19 @@
 """
-03_ref_biaised_integration.py  [optimized]
+03_ref_biased_integration.py  [optimized]
 -------------------------------------------
 Reads the bias list + dominant positions saved by script 01,
 injects each bias into a reference address dataset and geocodes
 the variants in chunks via the BAN API.
 
-No patient data is needed — all information comes from biaises_identified.csv
+No patient data is needed — all information comes from biases_identified.csv
 which is the direct output of script 01.
 
 Usage:
-    python 03_ref_biaised_integration.py [OPTIONS]
+    python 03_ref_biased_integration.py [OPTIONS]
 
 Options:
-    --biaises-file    Path to biaises_identified.csv
-                      (default: ./data/biaises_identified.csv)
+    --biases-file    Path to biases_identified.csv
+                      (default: ./data/biases_identified.csv)
     --reference-file  Reference address CSV (auto-detected if omitted)
     --sample-size     Rows to sample from reference (default: 15000)
 """
@@ -24,7 +24,7 @@ import sys
 import time
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--biaises-file",   default="./data/biaises_identified.csv")
+parser.add_argument("--biases-file",   default="./data/biases_identified.csv")
 parser.add_argument("--reference-file", default=None)
 parser.add_argument("--sample-size",    type=int, default=15000)
 args = parser.parse_args()
@@ -42,10 +42,10 @@ date = datetime.today().strftime("%Y%m%d")
 print(f"[03] start — date={date}")
 
 DIRS = {
-    "biaised":   "./data/reference/ref_biaised/",
+    "biased":   "./data/reference/ref_biased/",
     "chunked":   "./data/reference/ref_chunked/",
     "geo":       "./data/reference/ref_chunked_geocoded/",
-    "out":       "./data/reference/ref_biaised_geocoded/",
+    "out":       "./data/reference/ref_biased_geocoded/",
 }
 for d in DIRS.values():
     os.makedirs(d, exist_ok=True)
@@ -56,27 +56,27 @@ for d in DIRS.values():
 # ═════════════════════════════════════════════════════════════════════════════
 print("[03] §1 Loading bias list...")
 
-if not os.path.exists(args.biaises_file):
+if not os.path.exists(args.biases_file):
     raise FileNotFoundError(
-        f"{args.biaises_file} not found. Run script 01 first."
+        f"{args.biases_file} not found. Run script 01 first."
     )
 
-df_biaises = pd.read_csv(args.biaises_file, delimiter="|").dropna()
+df_biases = pd.read_csv(args.biases_file, delimiter="|").dropna()
 
-if len(df_biaises) == 0:
-    print("  [INFO] biaises_identified.csv is empty — nothing to geocode.")
+if len(df_biases) == 0:
+    print("  [INFO] biases_identified.csv is empty — nothing to geocode.")
     raise SystemExit(0)
 
-if "position" not in df_biaises.columns:
+if "position" not in df_biases.columns:
     raise KeyError(
-        "Column 'position' not found in biaises_identified.csv.\n"
+        "Column 'position' not found in biases_identified.csv.\n"
         "Re-run script 01 to regenerate the file with position information."
     )
 
 # {bias_token: dominant_position} dict — built directly from the file
 dict_pos_max = dict(zip(
-    df_biaises["biais"].astype(str).str.upper(),
-    df_biaises["position"].astype(str).str.upper(),
+    df_biases["bias"].astype(str).str.upper(),
+    df_biases["position"].astype(str).str.upper(),
 ))
 
 print(f"  {len(dict_pos_max)} biases loaded:")
@@ -132,7 +132,7 @@ def inject_bias(df_src: pd.DataFrame, bias: str, pos: str, col: str) -> pd.DataF
     return out
 
 for bias_token, position in dict_pos_max.items():
-    out_path = os.path.join(DIRS["biaised"], f"df_ref_{bias_token}.csv")
+    out_path = os.path.join(DIRS["biased"], f"df_ref_{bias_token}.csv")
     inject_bias(df_sample, bias_token, position, "adresse_uai").to_csv(out_path)
     print(f"  Saved: {out_path}")
 
@@ -153,15 +153,15 @@ OUT_COLS = [
 
 t0 = time.time()
 bias_files = [
-    f for f in os.listdir(DIRS["biaised"])
-    if os.path.isfile(os.path.join(DIRS["biaised"], f))
+    f for f in os.listdir(DIRS["biased"])
+    if os.path.isfile(os.path.join(DIRS["biased"], f))
 ]
 
 for fname in tqdm(bias_files):
     label = fname.split("_")[2].split(".")[0]
 
     df_to_geocode = (
-        pd.read_csv(os.path.join(DIRS["biaised"], fname), index_col=0)
+        pd.read_csv(os.path.join(DIRS["biased"], fname), index_col=0)
         .rename(columns={
             "coordonnee_x": "x_L93_ref",
             "coordonnee_y": "y_L93_ref",
@@ -193,8 +193,8 @@ for fname in tqdm(bias_files):
         ignore_index=True,
     )
     result = result[[c for c in OUT_COLS if c in result.columns]]
-    result.to_csv(os.path.join(DIRS["out"], f"{label}_ref_biaised.csv"), sep=";")
-    print(f"  Geocoded → {DIRS['out']}{label}_ref_biaised.csv")
+    result.to_csv(os.path.join(DIRS["out"], f"{label}_ref_biased.csv"), sep=";")
+    print(f"  Geocoded → {DIRS['out']}{label}_ref_biased.csv")
 
 elapsed = (time.time() - t0) / 60
 print(f"[03] DONE in {elapsed:.1f} min.")
