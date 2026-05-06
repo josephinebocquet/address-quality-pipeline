@@ -1,0 +1,22 @@
+name: adr_env_cpu
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - pandas
+  - numpy
+  - geopandas
+  - fiona
+  - matplotlib
+  - seaborn
+  - jupyterlab
+  - tqdm
+  - requests
+  - pip
+  - pip:
+    - rapidfuzz
+    - phonetic-fr
+    - python-Levenshtein
+    - jupytext
+    - nbstripout

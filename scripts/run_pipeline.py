@@ -25,7 +25,7 @@ Options:
     --reference-file  Reference CSV for step 03 (auto-detected if omitted)
     --sample-size     Number of reference rows to sample in step 03 (default: 15000)
     --iris-file       IRIS spatial file for step 04 (default: ./data/socioeco/iris.geojson)
-    --revenus-file    IRIS income CSV for step 04 (default: ./data/socioeco/BASE_TD_FILO_DISP_IRIS_2020.csv)
+    --revenus-file    IRIS income CSV for step 04 (default: ./data/socioeco/revenus_iris.csv)
     --steps           Comma-separated list of steps to run (default: 1,2,3,4)
                       Example: --steps 1,2  (only run steps 01 and 02)
 
@@ -71,7 +71,8 @@ def main():
         epilog=__doc__
     )
     parser.add_argument("input_file",      help="Path to the geocoded patients CSV.")
-    parser.add_argument("--gpu",           type=str,   default="2")
+    parser.add_argument("--gpu",           type=str,   default=None,
+                        help="CUDA device ID. Omit to run in CPU-only mode.")
     parser.add_argument("--gpu-03",        type=str,   default=None,
                         help="GPU device for step 03 (defaults to --gpu)")
     parser.add_argument("--output-dir",    default="./data/outputs/")
@@ -86,14 +87,13 @@ def main():
     parser.add_argument("--reference-file",default=None)
     parser.add_argument("--sample-size",   type=int,   default=15000)
     parser.add_argument("--iris-file",     default="./data/socioeco/iris.geojson")
-    parser.add_argument("--revenus-file",
-                    default="./data/socioeco/BASE_TD_FILO_DISP_IRIS_2020.csv")    
+    parser.add_argument("--revenus-file",  default="./data/socioeco/BASE_TD_FILO_DISP_IRIS_2020.csv")
     parser.add_argument("--steps",         default="1,2,3,4",
                         help="Comma-separated steps to execute (default: 1,2,3,4)")
     args = parser.parse_args()
 
     steps_to_run = {int(s.strip()) for s in args.steps.split(",")}
-    gpu_03 = args.gpu_03 or args.gpu
+    gpu_03 = args.gpu_03 or args.gpu or "0"  # fallback only used if GPU available
 
     scripts_dir = os.path.dirname(os.path.abspath(__file__))
     os.makedirs(args.output_dir, exist_ok=True)
@@ -106,17 +106,19 @@ def main():
 
     # ── Step 01 ───────────────────────────────────────────────────────────────
     if 1 in steps_to_run:
+        step01_args = [
+            args.input_file,
+            "--output-dir",     args.output_dir,
+            "--odonymes",       args.odonymes,
+            "--prenoms",        args.prenoms,
+            "--chunk-size",     str(args.chunk_size),
+            "--min-bias-count", str(args.min_bias_count),
+        ]
+        if args.gpu is not None:
+            step01_args += ["--gpu", args.gpu]
         run_step(
             os.path.join(scripts_dir, "01_textbias_identification.py"),
-            [
-                args.input_file,
-                "--gpu",            args.gpu,
-                "--output-dir",     args.output_dir,
-                "--odonymes",       args.odonymes,
-                "--prenoms",        args.prenoms,
-                "--chunk-size",     str(args.chunk_size),
-                "--min-bias-count", str(args.min_bias_count),
-            ],
+            step01_args,
             step_num=1
         )
 

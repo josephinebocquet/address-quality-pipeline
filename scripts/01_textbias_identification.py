@@ -32,7 +32,8 @@ import sys
 # ── Args BEFORE any GPU import so CUDA_VISIBLE_DEVICES is set first ──────────
 parser = argparse.ArgumentParser()
 parser.add_argument("input_file")
-parser.add_argument("--gpu",            type=str, default="2")
+parser.add_argument("--gpu",            type=str, default=None,
+                    help="CUDA device ID. Omit to run in CPU-only mode.")
 parser.add_argument("--output-dir",     default="./data/outputs/")
 parser.add_argument("--odonymes",       default="./data/odonymes.txt")
 parser.add_argument("--prenoms",        default="./data/Prenoms.csv")
@@ -42,13 +43,23 @@ parser.add_argument("--min-bias-count", type=int, default=2,
                          "Use 1 on small test datasets such as sample.csv.")
 args = parser.parse_args()
 
-os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+if args.gpu is not None:
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
 from datetime import datetime
-import cudf
+try:
+    import cudf
+    # Verify a GPU is actually accessible — cudf imports even with no GPU
+    # but operations fail at runtime. A lightweight Series creation is enough.
+    cudf.Series([1])
+    _GPU = True
+except Exception:
+    cudf = None
+    _GPU = False
+    print("[01] No GPU available — running in CPU-only mode (pandas throughout)")
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
@@ -56,7 +67,8 @@ from src.methods import *
 
 os.makedirs(args.output_dir, exist_ok=True)
 date = datetime.today().strftime('%Y%m%d')
-print(f"[01] start — date={date}  gpu={args.gpu}")
+mode = f"gpu={args.gpu}" if args.gpu is not None else "cpu-only"
+print(f"[01] start — date={date}  {mode}")
 
 # ── Compile expensive regex patterns once ─────────────────────────────────────
 _VOIE_TYPES = (
@@ -75,20 +87,20 @@ PAT_VOIE_N = r"(?i)Voie [A-Za-z]+/\d+"               # BAN artefact
 # ═════════════════════════════════════════════════════════════════════════════
 # §1-2  CUDF — Load + normalise
 # ═════════════════════════════════════════════════════════════════════════════
-print("[01] §1 Loading data (cudf)...")
+print(f"[01] §1 Loading data ({'cudf/GPU' if _GPU else 'pandas/CPU'})...")
 
-df_gpu      = cudf.read_csv(args.input_file, sep=";", dtype=str)
-df_odonyme  = cudf.read_csv(args.odonymes, delimiter="|")
-liste_odonyme_raw = cudf.Series(df_odonyme['synonym'].str.upper())
+_read_csv = cudf.read_csv if _GPU else pd.read_csv
+df_gpu      = _read_csv(args.input_file, sep=";", dtype=str)
+df_odonyme  = _read_csv(args.odonymes, delimiter="|")
+liste_odonyme_raw = (cudf.Series if _GPU else pd.Series)(df_odonyme['synonym'].str.upper())
 
-# liste_prenom is CPU-loaded; we clean it here as a cudf Series for §7 later
-df_prenom   = pd.read_csv(args.prenoms, encoding="utf-8", sep=";")
-df_prenom   = df_prenom.dropna(subset="01_prenom")
-liste_prenom_raw = cudf.Series(df_prenom["01_prenom"])
+df_prenom        = pd.read_csv(args.prenoms, encoding="utf-8", sep=";")
+df_prenom        = df_prenom.dropna(subset="01_prenom")
+liste_prenom_raw = (cudf.Series if _GPU else pd.Series)(df_prenom["01_prenom"])
 
 print(f"  Loaded {len(df_gpu):,} rows")
 
-print("[01] §2 Standardising (cudf)...")
+print(f"[01] §2 Standardising...")
 
 df_gpu["street"] = df_gpu["result_housenumber"] + " " + df_gpu["result_name"]
 
@@ -108,21 +120,21 @@ df_gpu = df_gpu.rename(columns={
     "result_city":     "ville_geo",
 })
 
-# normalize_address_series and remplacer_types_de_voies run on cudf → fast
+# normalize_address_series and remplacer_types_de_voies use is_cudf guards internally
 df_gpu = normalize_address_series(df_gpu, "adr_init")
 df_gpu = normalize_address_series(df_gpu, "adr_geo")
 df_gpu = remplacer_types_de_voies(df_gpu, "adr_init", df_odonyme)
 df_gpu = remplacer_types_de_voies(df_gpu, "adr_geo",  df_odonyme)
 
-# Single normalize_spaces pass (two replaces = one is enough for terminal spaces)
 for col in ("adr_init", "adr_geo"):
     df_gpu[col] = df_gpu[col].str.replace(r"\s+", " ", regex=True).str.strip()
 
 print(f"  After filter: {len(df_gpu):,} rows")
 
-# ── ONE transfer: cudf → pandas before the CPU-bound loop ────────────────────
-df = df_gpu.to_pandas()
-del df_gpu                   # free GPU memory early
+# Transfer to pandas — if already pandas (CPU mode) this is a no-op copy
+df = df_gpu.to_pandas() if _GPU else df_gpu.copy()
+if _GPU:
+    del df_gpu
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -174,7 +186,7 @@ print(f"  Aligned → {out_aligned}")
 print("[01] §4 Street-type detection (pandas)...")
 
 # odonyme as pandas Series for find_pos_elem in pandas mode
-odonyme_pd = df_odonyme["terme"].to_pandas().str.upper().drop_duplicates()
+odonyme_pd = (df_odonyme["terme"].to_pandas() if hasattr(df_odonyme["terme"], "to_pandas") else df_odonyme["terme"]).str.upper().drop_duplicates()
 
 df = find_pos_elem(df, "adr_init", odonyme_pd,
                    "street_type", "contains_street_type", "pos_street_type",
@@ -273,26 +285,39 @@ print(f"  Classified → {out_final}")
 # ═════════════════════════════════════════════════════════════════════════════
 print("[01] §7 Bias identification (cudf str.contains)...")
 
-# Clean prenom / odonyme lists — cudf-specific string methods
-for lst in (liste_prenom_raw, liste_odonyme_raw):
-    lst = (lst.str.filter_alphanum(" ")
-              .str.replace(r"[^a-zA-Z0-9\s]", "", regex=True)
-              .str.replace(r"\d", "", regex=True)
-              .str.normalize_characters()
-              .str.strip()
-              .str.upper())
+# Clean prenom / odonyme lists
+if _GPU:
+    # cudf-specific string methods (filter_alphanum, normalize_characters)
+    for lst in (liste_prenom_raw, liste_odonyme_raw):
+        lst = (lst.str.filter_alphanum(" ")
+                  .str.replace(r"[^a-zA-Z0-9\s]", "", regex=True)
+                  .str.replace(r"\d", "", regex=True)
+                  .str.normalize_characters()
+                  .str.strip()
+                  .str.upper())
+    to_clean_pd = cudf.concat([
+        liste_prenom_raw, liste_odonyme_raw,
+        cudf.Series(["BIS", "TER", "QUATER"]),
+        cudf.Series(["LE", "LA", "LES", "A", "AUX", "DE", "DU", "DES", "L", "D", "E"]),
+    ]).to_pandas().dropna().unique() if _GPU else pd.concat([
+        liste_prenom_raw, liste_odonyme_raw,
+        pd.Series(["BIS", "TER", "QUATER"]),
+        pd.Series(["LE", "LA", "LES", "A", "AUX", "DE", "DU", "DES", "L", "D", "E"]),
+    ]).dropna().unique()
+else:
+    # pandas fallback: unicodedata for accent stripping
+    import unicodedata as _ud
+    def _norm(s):
+        return _ud.normalize("NFD", str(s)).encode("ascii", "ignore").decode()
+    to_clean_pd = pd.concat([
+        liste_prenom_raw, liste_odonyme_raw,
+        pd.Series(["BIS", "TER", "QUATER"]),
+        pd.Series(["LE", "LA", "LES", "A", "AUX", "DE", "DU", "DES", "L", "D", "E"]),
+    ]).dropna().apply(_norm).str.replace(r"[^a-zA-Z0-9\s]", "", regex=True).str.upper().unique()
 
-to_clean = cudf.concat([
-    liste_prenom_raw, liste_odonyme_raw,
-    cudf.Series(["BIS", "TER", "QUATER"]),
-    cudf.Series(["LE", "LA", "LES", "A", "AUX", "DE", "DU", "DES", "L", "D", "E"]),
-])
-
-# Filter subsets in pandas (cheap), then convert to cudf for GPU str.contains
 df_w_street_pd = df[
     (df["contains_street_type"] == True) & (df["geocoding_error"] == False)
 ]
-to_clean_pd = to_clean.to_pandas().dropna().unique()
 bruit_vrais = find_most_common_biases(df_w_street_pd, to_clean_pd)
 bruit_vrais = bruit_vrais[bruit_vrais["count"] >= args.min_bias_count]
 print(f"  Bias candidates (count >= {args.min_bias_count}): {len(bruit_vrais)}")
@@ -309,14 +334,21 @@ if len(bruit_vrais) == 0:
     pd.DataFrame(columns=["bias"]).to_csv("./data/biases_identified.csv", sep="|", index=False)
     raise SystemExit(0)
 
-# Scan only the not_matched_brute column as a cudf Series — minimal transfer
-has_unmatched   = df_w_street_pd["not_matched_brute"].notna() & (df_w_street_pd["not_matched_brute"] != "")
-nmb_gpu         = cudf.Series(df_w_street_pd.loc[has_unmatched, "not_matched_brute"].values)
+# Frequency scan — GPU if available, pandas otherwise
+has_unmatched = df_w_street_pd["not_matched_brute"].notna() & (df_w_street_pd["not_matched_brute"] != "")
+nmb_series_pd = df_w_street_pd.loc[has_unmatched, "not_matched_brute"]
 
-resultat = {
-    mot: int(nmb_gpu.str.contains(rf"\b{mot}\b", regex=True).sum())
-    for mot in bruit_vrais.head(100).index
-}
+if _GPU:
+    nmb = cudf.Series(nmb_series_pd.values)
+    resultat = {
+        mot: int(nmb.str.contains(rf"\b{mot}\b", regex=True).sum())
+        for mot in bruit_vrais.head(100).index
+    }
+else:
+    resultat = {
+        mot: int(nmb_series_pd.str.contains(rf"\b{mot}\b", regex=True).sum())
+        for mot in bruit_vrais.head(100).index
+    }
 
 freq_df = (
     pd.DataFrame(list(resultat.items()), columns=["Mot", "Occurrences"])
@@ -339,7 +371,7 @@ df_pos_analysis = df_w_street_pd[
     df_w_street_pd["contains_street_type"] == True
 ].copy()
 
-odonyme_pd_pos = df_odonyme["terme"].to_pandas().str.upper().drop_duplicates()
+odonyme_pd_pos = (df_odonyme["terme"].to_pandas() if hasattr(df_odonyme["terme"], "to_pandas") else df_odonyme["terme"]).str.upper().drop_duplicates()
 df_pos_analysis = find_pos_elem(
     df_pos_analysis, "adr_init", odonyme_pd_pos,
     "street_type", "contains_street_type", "pos_street_type",

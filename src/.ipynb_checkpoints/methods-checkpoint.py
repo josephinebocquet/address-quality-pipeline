@@ -688,7 +688,8 @@ def remplacer_types_de_voies(df, colonne, df_odonyme):
     df_odonyme = df_odonyme.sort_values(by='synonym_length', ascending=False)
 
     # Effectuer les remplacements pour chaque synonyme dans l'ordre trié
-    for _, row in df_odonyme.to_pandas().iterrows():
+    odonyme_pd = df_odonyme.to_pandas() if hasattr(df_odonyme, 'to_pandas') else df_odonyme
+    for _, row in odonyme_pd.iterrows():
         synonym = row['synonym'].upper()
         replacement = row['terme'].upper() + " "
 
@@ -701,7 +702,7 @@ def remplacer_types_de_voies(df, colonne, df_odonyme):
 
 
 
-def find_most_common_biaises(df,to_clean): 
+def find_most_common_biases(df,to_clean): 
     
     
     """
@@ -718,8 +719,8 @@ def find_most_common_biaises(df,to_clean):
     not_matched_brute_noNum = [' '.join(re.findall(r'\b[^\W\d_]+\b',x)) for x in not_matched_brute]
     not_matched_geo_noNum = [' '.join(re.findall(r'\b[^\W\d_]+\b',x)) for x in not_matched_geo]
     
-    list_not_matched_brute_noNum = pd.Series([re.sub(r'[\d ]+', '', x) for x in not_matched_brute_noNum if x != ''])
-    list_not_matched_geo_noNum = pd.Series([re.sub(r'[\d ]+', '', x) for x in not_matched_geo_noNum if x != ''])
+    list_not_matched_brute_noNum = pd.Series([re.sub(r'\d+', '', x).strip() for x in not_matched_brute_noNum if x != ''])
+    list_not_matched_geo_noNum = pd.Series([re.sub(r'\d+', '', x).strip() for x in not_matched_geo_noNum if x != ''])
     
     """5. Transformation de la liste des éléments alignées (string) vers des éléments individuel   
     - ensemble des éléments supplémentaires de l'adresse brute : {bruits}  
@@ -738,17 +739,10 @@ def find_most_common_biaises(df,to_clean):
 
     """ 6. Filtre des éléments non alignées de l'adresse brutes avec les compléments  
         {bruits filtres} = {bruits} minus {complement}
-        
-        SUPP DE CETTE PARTIE POUR AUTOMATISATION
-        ##Probleme - filtre des éléments pertinents tel que "CHEZ" ou autre pouvant être considérés comme biais - retrait manuel 
+    
     """
     common = bruit_count.index.intersection(compl_count.index)
 
-
-    # unwanted_elements = ['HOPITAL', 'CHEZ', 'BATIMENT', 'LOTISSEMENT', 'APPT', 'PREMIER', 'ESC', 'GROUPE' , 'SECOURS', 'HOTEL' , 
-    #                      'CO' ,'DOMICILE','APPARTEMENT','MAISON','ESCALIER' ]
-    
-    # common = common.difference(unwanted_elements)
     
     bruits_filtres = bruit_count.drop(common)
     
@@ -828,40 +822,40 @@ def freq_couverture(dataframe,bruit,colonne):
     df = dataframe[(~dataframe[colonne].isna())&(dataframe[colonne]!="")]
 
     ##Serie contenant les bruits vrais contenus dans le dataframe : bruit_vrais_w_street 
-    pattern_biaises = r'\b(?:' + '|'.join(re.escape(word) for word in bruit) + r')\b'
+    pattern_biases = r'\b(?:' + '|'.join(re.escape(word) for word in bruit) + r')\b'
 
     ### Recherche des termes dans le dataframe
-    df['biaises_found'] = df[colonne].str.findall(pattern_biaises)
+    df['biases_found'] = df[colonne].str.findall(pattern_biases)
 
-    bruit_trouves = df[['id', 'biaises_found']].explode('biaises_found').reset_index()
+    bruit_trouves = df[['id', 'biases_found']].explode('biases_found').reset_index()
     
-    bruit_trouves.rename(columns={'id':'row_id','biaises_found': 'biais'}, inplace=True)
-    bruit_trouves = bruit_trouves.dropna(subset="biais")
+    bruit_trouves.rename(columns={'id':'row_id','biases_found': 'bias'}, inplace=True)
+    bruit_trouves = bruit_trouves.dropna(subset="bias")
     bruit_trouves = bruit_trouves.drop('index',axis=1)
 
-    df_groupby = bruit_trouves.groupby('biais').agg(list)
+    df_groupby = bruit_trouves.groupby('bias').agg(list)
 
     df_groupby['list_size'] = df_groupby['row_id'].apply(len)
 
     df_sorted_gp = df_groupby.sort_values(by='list_size', ascending=True).drop(columns=['list_size'])
 
-    seen_biaises = set()
+    seen_biases = set()
     cumsum_values = []
 
     for list_of_row_id in df_sorted_gp['row_id']:  # already pandas — no .to_pandas() needed
         # Add unique values to the seen set
-        seen_biaises.update(list_of_row_id)
+        seen_biases.update(list_of_row_id)
         # The cumulative count is the size of the seen set
-        cumsum_values.append(len(seen_biaises))
+        cumsum_values.append(len(seen_biases))
 
     # Assign the corrected cumsum values to the DataFrame
     df_sorted_gp['cumsum'] = cumsum_values
     
-    df['biaises_found'] = df['biaises_found'].astype(str)
-    nb_row_w_biais = len(df[df['biaises_found']!="[]"])
+    df['biases_found'] = df['biases_found'].astype(str)
+    nb_row_w_bias = len(df[df['biases_found']!="[]"])
 
     df_sorted_gp['freq_globale_cum'] = df_sorted_gp['cumsum']/ len(dataframe)
-    df_sorted_gp['freq_biais_cum'] = df_sorted_gp['cumsum']/ nb_row_w_biais
+    df_sorted_gp['freq_bias_cum'] = df_sorted_gp['cumsum']/ nb_row_w_bias
     
     return df_sorted_gp
 
